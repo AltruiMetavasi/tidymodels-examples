@@ -1,14 +1,35 @@
+
 # tidymodels-examples
 
-This repository hosts my personal collection of `tidymodels` implementations for various routines in model fitting, evaluation, and automation.
+This repository hosts my personal collection of `tidymodels`
+implementations for various routines in model fitting and evaluation.
 
-**This repository is still in early development stage**. If you're looking for some example, you can still check-out some scripts in `R/fit` folder; which not only represent a distraction free codes, but also an example of in-production implementation.
+## Getting Started
 
-## Further Development
+All examples are stored in each different branches. For example, if you
+want to get the example for random forest classification model, you can
+look into `classification-rand_forest` branch.
 
-* `.R` script for making prediction into new data
-* `.Rmd` files for explaining each script
-* `.Rmd` files for reporting templates
-* `.R` script for automated-fitting with multiple models and recipes
-* `.R` script for ensemble learning; it would be heavily inspired by [Alex Hayes' post](https://alexpghayes.com/blog/implementing-the-super-learner-with-tidymodels/)
-* Rearrange the files into various machine learning problems (e.g., regression, classification, and time-series)
+### How to Get the Example
+
+You can download the examples either from the repository page or
+terminal:
+
+  - From repository page:
+
+<!-- end list -->
+
+1.  Switch the branch (the **“Branch:”** dropdown menu) into your
+    desired examples; e.g., `classification-rand_forest`
+2.  Click the **“Clone or Download”** button
+
+<!-- end list -->
+
+  - From
+terminal:
+
+<!-- end list -->
+
+``` bash
+git clone -b classification-rand_forest --single_branch bagasbgy/tidymodels-examples
+```
