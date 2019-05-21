@@ -1,0 +1,219 @@
+---
+title: "Model Fitting and Evaluation"
+author: "R. Dimas Bagas Herlambang"
+date: "`r format(Sys.Date(), '%B %e, %Y')`"
+output:
+  html_document:
+    theme: cosmo
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+    df_print: paged
+---
+
+```{r setup-env, include=FALSE}
+# chunk options
+knitr::opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  fig.asp = 0.5625,
+  fig.align = "center",
+  out.width = "85%",
+  comment = "#>"
+)
+```
+
+```{r setup-libs, include=FALSE}
+# import libs
+library(plotly)
+library(ranger)
+library(tidyverse)
+library(tidymodels)
+```
+
+## Data Preparation
+
+### Import Dataset
+
+```{r data-import}
+# import dataset
+data_clean <- read_csv("data/data-clean.csv")
+
+# quick check
+head(data_clean, 10)
+```
+
+### Cross-Validation Scheme
+
+```{r data-initial_split}
+# create initial split
+splitted <- initial_split(data_clean, prop = 0.8, strata = "response")
+
+# quick check
+splitted
+```
+
+## Data Preprocess
+
+### Defining Preprocess Recipe
+
+```{r preproc-rec}
+# define preprocess recipe from train dataset
+rec <- recipe(response ~ ., data = training(splitted)) %>% 
+  step_rm(duration) %>%
+  step_nzv(all_predictors()) %>% 
+  step_string2factor(all_nominal(), -response) %>%
+  step_string2factor(response, levels = c("yes", "no")) %>%
+  step_downsample(response, ratio = 1/1, seed = 100) %>%
+  step_center(all_numeric()) %>%
+  step_scale(all_numeric()) %>%
+  prep(strings_as_factors = FALSE)
+
+# quick check
+head(juice(rec), 10)
+```
+
+## Model Fitting
+
+### Defining Model Specifications
+
+```{r model-spec}
+# define model specification
+model_spec <- rand_forest(
+  mode = "classification",
+  mtry = ncol(juice(rec)) - 1,
+  trees = 500,
+  min_n = 1
+)
+
+# define model engine
+model_spec <- set_engine(
+  object = model_spec,
+  engine = "ranger",
+  seed = 100,
+  num.threads = parallel::detectCores(),
+  importance = "impurity"
+)
+
+# quick check
+model_spec
+```
+
+### Model Fitting
+
+```{r model-fit}
+# fit the model
+model <- fit_xy(model_spec, x = juice(rec, -response), y = juice(rec, response))
+
+# quick check
+model
+```
+
+### Variable Importance
+
+```{r model-var_imp}
+# get variable importance
+var_imp <- tidy(model$fit$variable.importance) %>%
+  rename(variable = names, importance = x) %>%
+  mutate(variable = reorder(variable, importance))
+
+# variable importance plot
+ggplot(var_imp, aes(x = variable, y = importance)) +
+  geom_col(fill = "darkblue") +
+  coord_flip() +
+  labs(title = "Variables Importance", x = NULL, y = NULL, fill = NULL) +
+  scale_y_continuous(expand = expand_scale(mult = c(0, 0.1))) +
+  theme_minimal()
+```
+
+## Model Evaluation
+
+### Predict on Test Dataset
+
+```{r eval-pred}
+# predict on test
+pred_test <- bake(rec, testing(splitted)) %>%
+  bind_cols(predict(model, new_data = .)) %>%
+  bind_cols(predict(model, new_data = ., type = "prob")) %>% 
+  select(response, starts_with(".pred"))
+
+# quick check
+head(pred_test, 10)
+```
+
+### Confusion Matrix
+
+```{r eval-conf_mat}
+# confusion matrix
+pred_test %>%
+  conf_mat(response, .pred_class) %>%
+  autoplot(type = "heatmap")
+```
+
+```{r eval-conf_mat-summary}
+# metrics summary
+pred_test %>%
+  summarise(
+    accuracy = accuracy_vec(response, .pred_class),
+    sensitivity = sens_vec(response, .pred_class),
+    specificity = spec_vec(response, .pred_class),
+    precision = precision_vec(response, .pred_class)
+  )
+```
+
+### ROC Curve
+
+```{r eval-roc_curve}
+# plot roc curve
+pred_test %>%
+  roc_curve(response, .pred_yes) %>%
+  autoplot()
+```
+
+```{r eval-roc_curve-trade_off}
+# get roc curve data on test dataset
+pred_test_roc <- pred_test %>%
+  roc_curve(response, .pred_yes)
+
+# tidying
+pred_test_roc <- pred_test_roc %>% 
+  mutate_if(~ is.numeric(.), ~ round(., 4)) %>% 
+  gather(metric, value, -.threshold)
+
+# plot sensitivity-specificity trade-off
+p <- ggplot(pred_test_roc, aes(x = .threshold, y = value)) +
+  geom_line(aes(colour = metric)) +
+  labs(x = "Probability Threshold to be Classified as Positive", y = "Value", colour = "Metrics") +
+  theme_minimal()
+
+ggplotly(p)
+```
+
+### Precision-Recall Curve
+
+```{r eval-pr_curve}
+# plot pr curve
+pred_test %>%
+  pr_curve(response, .pred_yes) %>%
+  autoplot()
+```
+
+```{r eval-pr_curve_trade_off}
+# get pr curve data on test dataset
+pred_test_pr <- pred_test %>%
+  pr_curve(response, .pred_yes)
+
+# tidying
+pred_test_pr <- pred_test_pr %>% 
+  mutate_if(~ is.numeric(.), ~ round(., 4)) %>% 
+  gather(metric, value, -.threshold)
+
+# plot recall-precision trade-off
+p <- ggplot(pred_test_pr, aes(x = .threshold, y = value)) +
+  geom_line(aes(colour = metric)) +
+  labs(x = "Probability Threshold to be Classified as Positive", y = "Value", colour = "Metrics") +
+  theme_minimal()
+
+ggplotly(p)
+```
