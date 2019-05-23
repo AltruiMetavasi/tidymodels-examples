@@ -142,8 +142,8 @@ ggplot(var_imp, aes(x = variable, y = importance)) +
 ```{r eval-pred}
 # predict on test
 pred_test <- bake(rec, testing(splitted)) %>%
-  bind_cols(predict(model, bake(rec, testing(splitted)))) %>%
-  bind_cols(predict(model, bake(rec, testing(splitted)), type = "prob")) %>% 
+  bind_cols(predict(model, .)) %>%
+  bind_cols(predict(model, ., type = "prob")) %>% 
   select(attrition, starts_with(".pred"))
 
 # quick check

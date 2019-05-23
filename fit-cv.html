@@ -3049,8 +3049,8 @@ div.tocify {
 <a class="sourceLine" id="cb10-2" data-line-number="2">cv_result &lt;-<span class="st"> </span>crossed <span class="op">%&gt;%</span></a>
 <a class="sourceLine" id="cb10-3" data-line-number="3"><span class="st">  </span><span class="kw">mutate</span>(<span class="dt">prediction =</span> <span class="kw">map2</span>(model, splits, <span class="op">~</span></a>
 <a class="sourceLine" id="cb10-4" data-line-number="4"><span class="st">    </span><span class="kw">assessment</span>(.y) <span class="op">%&gt;%</span></a>
-<a class="sourceLine" id="cb10-5" data-line-number="5"><span class="st">      </span><span class="kw">bind_cols</span>(<span class="kw">predict</span>(.x, <span class="kw">assessment</span>(.y))) <span class="op">%&gt;%</span></a>
-<a class="sourceLine" id="cb10-6" data-line-number="6"><span class="st">      </span><span class="kw">bind_cols</span>(<span class="kw">predict</span>(.x, <span class="kw">assessment</span>(.y), <span class="dt">type =</span> <span class="st">&quot;prob&quot;</span>)) <span class="op">%&gt;%</span></a>
+<a class="sourceLine" id="cb10-5" data-line-number="5"><span class="st">      </span><span class="kw">bind_cols</span>(<span class="kw">predict</span>(.x, .)) <span class="op">%&gt;%</span></a>
+<a class="sourceLine" id="cb10-6" data-line-number="6"><span class="st">      </span><span class="kw">bind_cols</span>(<span class="kw">predict</span>(.x, ., <span class="dt">type =</span> <span class="st">&quot;prob&quot;</span>)) <span class="op">%&gt;%</span></a>
 <a class="sourceLine" id="cb10-7" data-line-number="7"><span class="st">      </span><span class="kw">select</span>(attrition, <span class="kw">starts_with</span>(<span class="st">&quot;.pred&quot;</span>))</a>
 <a class="sourceLine" id="cb10-8" data-line-number="8">  ))</a>
 <a class="sourceLine" id="cb10-9" data-line-number="9"></a>
