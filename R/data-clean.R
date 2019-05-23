@@ -4,37 +4,42 @@
 rm(list = ls())
 
 # import libs
-library(lubridate)
 library(snakecase)
-library(readxl)
+library(stringi)
 library(tidyverse)
 
 # import dataset ----------------------------------------------------------
 
 # import
-data_raw <- read_excel("data-raw/WA_Fn-UseC_-HR-Employee-Attrition.xlsx")
+data_raw <- read_csv("data-raw/Airline-Sentiment-2-w-AA.csv")
 
 # quick check
 glimpse(data_raw)
 
-# readjust factors --------------------------------------------------------
+# cleaning ----------------------------------------------------------------
+
+# get problematic rows
+problem_rows <- problems(data_raw) %>%
+  pull(row) %>%
+  unique()
+
+# remove problematic rows
+data_raw <- data_raw %>%
+  slice(-problem_rows)
+
+# readjust non-ascii
+data_raw <- data_raw %>%
+  mutate(text = stri_trans_general(text, id = "ASCII-Latin"))
+
+# finalize ----------------------------------------------------------------
 
 # readjust all column names
 data_raw <- data_raw %>%
   rename_all(~ to_snake_case(.))
 
-# readjust all nominal columns
-data_raw <- data_raw %>%
-  mutate_if(is.character, ~ to_snake_case(.))
-
-# quick check
-glimpse(data_raw)
-
-# finalize ----------------------------------------------------------------
-
 # readjust columns
 data_clean <- data_raw %>%
-  select(attrition, everything())
+  select(sentiment = airline_sentiment, tweet = text, everything())
 
 # export ------------------------------------------------------------------
 
