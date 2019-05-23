@@ -86,9 +86,9 @@ head(juice(rec), 10)
 # define model specification
 model_spec <- rand_forest(
   mode = "classification",
-  mtry = 2,
-  trees = 1500,
-  min_n = 30
+  mtry = 29,
+  trees = 1000,
+  min_n = 15
 )
 
 # define model engine
@@ -142,8 +142,8 @@ ggplot(var_imp, aes(x = variable, y = importance)) +
 ```{r eval-pred}
 # predict on test
 pred_test <- bake(rec, testing(splitted)) %>%
-  bind_cols(predict(model, new_data = .)) %>%
-  bind_cols(predict(model, new_data = ., type = "prob")) %>% 
+  bind_cols(predict(model, bake(rec, testing(splitted)))) %>%
+  bind_cols(predict(model, bake(rec, testing(splitted)), type = "prob")) %>% 
   select(attrition, starts_with(".pred"))
 
 # quick check

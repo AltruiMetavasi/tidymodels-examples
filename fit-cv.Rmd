@@ -160,8 +160,8 @@ head(crossed, 10)
 cv_result <- crossed %>%
   mutate(prediction = map2(model, splits, ~
     assessment(.y) %>%
-      bind_cols(predict(.x, new_data = .)) %>%
-      bind_cols(predict(.x, new_data = ., type = "prob")) %>%
+      bind_cols(predict(.x, new_data = assessment(.y))) %>%
+      bind_cols(predict(.x, new_data = assessment(.y), type = "prob")) %>%
       select(attrition, starts_with(".pred"))
   ))
 
