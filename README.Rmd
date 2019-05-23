@@ -28,5 +28,5 @@ You can download the examples either from the repository page or terminal:
 * From terminal:
 
 ```{bash, eval=FALSE}
-git clone -b classification-rand_forest --single_branch bagasbgy/tidymodels-examples
+git clone -b classification-rand_forest --single-branch https://github.com/bagasbgy/tidymodels-examples
 ```

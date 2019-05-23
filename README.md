@@ -31,5 +31,5 @@ terminal:
 <!-- end list -->
 
 ``` bash
-git clone -b classification-rand_forest --single_branch bagasbgy/tidymodels-examples
+git clone -b classification-rand_forest --single-branch https://github.com/bagasbgy/tidymodels-examples
 ```
