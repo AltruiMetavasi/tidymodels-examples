@@ -12,7 +12,10 @@ output:
     df_print: paged
 ---
 
-```{r setup-env, include=FALSE}
+```{r setup, include=FALSE}
+# clear-up the environment
+rm(list = ls())
+
 # chunk options
 knitr::opts_chunk$set(
   message = FALSE,
@@ -22,9 +25,7 @@ knitr::opts_chunk$set(
   out.width = "85%",
   comment = "#>"
 )
-```
 
-```{r setup-libs, include=FALSE}
 # import libs
 library(plotly)
 library(ranger)
@@ -44,28 +45,31 @@ data_clean <- read_csv("data/data-clean.csv")
 head(data_clean, 10)
 ```
 
+## Data Preprocess
+
 ### Cross-Validation Scheme
 
-```{r data-initial_split}
+```{r preproc-initial_split}
+# set seed
+set.seed(100)
+
 # create initial split
-splitted <- initial_split(data_clean, prop = 0.8, strata = "response")
+splitted <- initial_split(data_clean, prop = 0.8, strata = "attrition")
 
 # quick check
 splitted
 ```
 
-## Data Preprocess
-
 ### Defining Preprocess Recipe
 
 ```{r preproc-rec}
 # define preprocess recipe from train dataset
-rec <- recipe(response ~ ., data = training(splitted)) %>% 
-  step_rm(duration) %>%
+rec <- recipe(attrition ~ ., data = training(splitted)) %>% 
+  step_rm(employee_count, employee_number) %>%
   step_nzv(all_predictors()) %>% 
-  step_string2factor(all_nominal(), -response) %>%
-  step_string2factor(response, levels = c("yes", "no")) %>%
-  step_downsample(response, ratio = 1/1, seed = 100) %>%
+  step_string2factor(all_nominal(), -attrition) %>%
+  step_string2factor(attrition, levels = c("yes", "no")) %>%
+  step_downsample(attrition, ratio = 1/1, seed = 100) %>%
   step_center(all_numeric()) %>%
   step_scale(all_numeric()) %>%
   prep(strings_as_factors = FALSE)
@@ -82,9 +86,9 @@ head(juice(rec), 10)
 # define model specification
 model_spec <- rand_forest(
   mode = "classification",
-  mtry = ncol(juice(rec)) - 1,
-  trees = 500,
-  min_n = 1
+  mtry = 2,
+  trees = 1500,
+  min_n = 30
 )
 
 # define model engine
@@ -104,7 +108,7 @@ model_spec
 
 ```{r model-fit}
 # fit the model
-model <- fit_xy(model_spec, x = juice(rec, -response), y = juice(rec, response))
+model <- fit_xy(model_spec, x = juice(rec, -attrition), y = juice(rec, attrition))
 
 # quick check
 model
@@ -114,7 +118,11 @@ model
 
 ```{r model-var_imp}
 # get variable importance
-var_imp <- tidy(model$fit$variable.importance) %>%
+var_imp <- tidy(model$fit$variable.importance)
+
+# tidying
+var_imp <- var_imp %>%
+  head(10) %>% 
   rename(variable = names, importance = x) %>%
   mutate(variable = reorder(variable, importance))
 
@@ -122,7 +130,7 @@ var_imp <- tidy(model$fit$variable.importance) %>%
 ggplot(var_imp, aes(x = variable, y = importance)) +
   geom_col(fill = "darkblue") +
   coord_flip() +
-  labs(title = "Variables Importance", x = NULL, y = NULL, fill = NULL) +
+  labs(title = "Variables Importance (Top 10)", x = NULL, y = NULL, fill = NULL) +
   scale_y_continuous(expand = expand_scale(mult = c(0, 0.1))) +
   theme_minimal()
 ```
@@ -136,7 +144,7 @@ ggplot(var_imp, aes(x = variable, y = importance)) +
 pred_test <- bake(rec, testing(splitted)) %>%
   bind_cols(predict(model, new_data = .)) %>%
   bind_cols(predict(model, new_data = ., type = "prob")) %>% 
-  select(response, starts_with(".pred"))
+  select(attrition, starts_with(".pred"))
 
 # quick check
 head(pred_test, 10)
@@ -147,7 +155,7 @@ head(pred_test, 10)
 ```{r eval-conf_mat}
 # confusion matrix
 pred_test %>%
-  conf_mat(response, .pred_class) %>%
+  conf_mat(attrition, .pred_class) %>%
   autoplot(type = "heatmap")
 ```
 
@@ -155,10 +163,10 @@ pred_test %>%
 # metrics summary
 pred_test %>%
   summarise(
-    accuracy = accuracy_vec(response, .pred_class),
-    sensitivity = sens_vec(response, .pred_class),
-    specificity = spec_vec(response, .pred_class),
-    precision = precision_vec(response, .pred_class)
+    accuracy = accuracy_vec(attrition, .pred_class),
+    sensitivity = sens_vec(attrition, .pred_class),
+    specificity = spec_vec(attrition, .pred_class),
+    precision = precision_vec(attrition, .pred_class)
   )
 ```
 
@@ -167,14 +175,14 @@ pred_test %>%
 ```{r eval-roc_curve}
 # plot roc curve
 pred_test %>%
-  roc_curve(response, .pred_yes) %>%
+  roc_curve(attrition, .pred_yes) %>%
   autoplot()
 ```
 
 ```{r eval-roc_curve-trade_off}
 # get roc curve data on test dataset
 pred_test_roc <- pred_test %>%
-  roc_curve(response, .pred_yes)
+  roc_curve(attrition, .pred_yes)
 
 # tidying
 pred_test_roc <- pred_test_roc %>% 
@@ -195,14 +203,14 @@ ggplotly(p)
 ```{r eval-pr_curve}
 # plot pr curve
 pred_test %>%
-  pr_curve(response, .pred_yes) %>%
+  pr_curve(attrition, .pred_yes) %>%
   autoplot()
 ```
 
 ```{r eval-pr_curve_trade_off}
 # get pr curve data on test dataset
 pred_test_pr <- pred_test %>%
-  pr_curve(response, .pred_yes)
+  pr_curve(attrition, .pred_yes)
 
 # tidying
 pred_test_pr <- pred_test_pr %>% 
