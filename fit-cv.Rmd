@@ -1,5 +1,5 @@
 ---
-title: "Hyperparameter tuning"
+title: "Hyperparameter Tuning"
 author: "R. Dimas Bagas Herlambang"
 date: "`r format(Sys.Date(), '%B %e, %Y')`"
 output:
@@ -160,8 +160,8 @@ head(crossed, 10)
 cv_result <- crossed %>%
   mutate(prediction = map2(model, splits, ~
     assessment(.y) %>%
-      bind_cols(predict(.x, new_data = assessment(.y))) %>%
-      bind_cols(predict(.x, new_data = assessment(.y), type = "prob")) %>%
+      bind_cols(predict(.x, assessment(.y))) %>%
+      bind_cols(predict(.x, assessment(.y), type = "prob")) %>%
       select(attrition, starts_with(".pred"))
   ))
 
@@ -194,7 +194,7 @@ head(grid_result, 10)
 ggplot(grid_result, aes(x = as.factor(mtry), y = sensitivity)) +
   geom_boxplot(aes(fill = as.factor(trees))) +
   coord_flip() +
-  facet_wrap(~ min_n, ncol = 3, labeller = "label_both") +
+  facet_wrap(~ min_n, ncol = 3) +
   labs(x = "mtry", y = "Sensitivity", fill = "trees") +
   theme_minimal()
 ```
