@@ -91,7 +91,7 @@ rec <- recipe(sentiment ~ ., data = training(splitted)) %>%
   step_stopwords(tweet) %>%
   step_tokenfilter(tweet, max_tokens = 256) %>%
   step_tfidf(tweet) %>%
-  prep(string_as_factor = FALSE)
+  prep(strings_as_factors = FALSE)
 
 # get train and test dataset
 data_train <- juice(rec)
