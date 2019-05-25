@@ -74,6 +74,10 @@ rec <- recipe(attrition ~ ., data = training(splitted)) %>%
   step_scale(all_numeric()) %>%
   prep(strings_as_factors = FALSE)
 
+# get train and test dataset
+data_train <- juice(rec)
+data_test <- bake(rec, testing(splitted))
+
 # quick check
 head(juice(rec), 10)
 ```
@@ -96,7 +100,7 @@ model_spec <- set_engine(
   object = model_spec,
   engine = "ranger",
   seed = 100,
-  num.threads = parallel::detectCores(),
+  num.threads = parallel::detectCores() / 2,
   importance = "impurity"
 )
 
@@ -108,8 +112,11 @@ model_spec
 
 ```{r model-fit}
 # fit the model
-model <- fit_xy(model_spec, x = juice(rec, -attrition), y = juice(rec, attrition))
-
+model <- fit_xy(
+  object = model_spec,
+  x = select(data_train, -attrition),
+  y = select(data_train, attrition)
+)
 # quick check
 model
 ```
@@ -141,10 +148,9 @@ ggplot(var_imp, aes(x = variable, y = importance)) +
 
 ```{r eval-pred}
 # predict on test
-pred_test <- bake(rec, testing(splitted)) %>%
-  bind_cols(predict(model, .)) %>%
-  bind_cols(predict(model, ., type = "prob")) %>% 
-  select(attrition, starts_with(".pred"))
+pred_test <- select(data_test, attrition) %>%
+  bind_cols(predict(model, select(data_test, -attrition))) %>%
+  bind_cols(predict(model, select(data_test, -attrition), type = "prob"))
 
 # quick check
 head(pred_test, 10)

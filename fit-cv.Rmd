@@ -104,7 +104,7 @@ model_engine <- set_engine(
   object = model_engine,
   engine = "ranger",
   seed = 100,
-  num.threads = parallel::detectCores(),
+  num.threads = parallel::detectCores() / 2,
   importance = "impurity"
 )
 
@@ -144,7 +144,10 @@ crossed <- crossing(cv_split, model_specs)
 # fit on every folds
 crossed <- crossed %>%
   mutate(model = map2(spec, splits, ~
-    fit_xy(.x, x = select(analysis(.y), -attrition), y = select(analysis(.y), attrition))
+    fit_xy(
+      object = .x,
+      x = select(analysis(.y), -attrition),
+      y = select(analysis(.y), attrition))
   ))
 
 # quick check
@@ -194,7 +197,7 @@ head(grid_result, 10)
 ggplot(grid_result, aes(x = as.factor(mtry), y = sensitivity)) +
   geom_boxplot(aes(fill = as.factor(trees))) +
   coord_flip() +
-  facet_wrap(~ min_n, ncol = 3) +
+  facet_wrap(~ min_n, ncol = 3, labeller = "label_both") +
   labs(x = "mtry", y = "Sensitivity", fill = "trees") +
   theme_minimal()
 ```
@@ -206,7 +209,7 @@ ggplot(grid_result, aes(x = as.factor(mtry), y = sensitivity)) +
 ggplot(grid_result, aes(x = as.factor(mtry), y = precision)) +
   geom_boxplot(aes(fill = as.factor(trees))) +
   coord_flip() +
-  facet_wrap(~ min_n, ncol = 3) +
+  facet_wrap(~ min_n, ncol = 3, labeller = "label_both") +
   labs(x = "mtry", y = "Precision", fill = "trees") +
   theme_minimal()
 ```
