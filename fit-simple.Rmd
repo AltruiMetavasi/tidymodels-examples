@@ -68,25 +68,30 @@ splitted
 # define preprocess recipe from train dataset
 rec <- recipe(sentiment ~ ., data = training(splitted)) %>% 
   step_rm(-sentiment, -tweet) %>%
-  step_string2factor(sentiment, levels = c("negative", "neutral", "positive")) %>%
+  step_string2factor(sentiment, levels = c("negative", "neutral", "positive"), skip = TRUE) %>%
   step_downsample(sentiment, ratio = 1/1, seed = 100) %>%
+  step_mutate(tweet = str_squish(tweet)) %>% 
+  step_mutate(tweet = replace_html(tweet, symbol = FALSE)) %>% 
   step_mutate(tweet = replace_kern(tweet)) %>% 
   step_mutate(tweet = replace_word_elongation(tweet)) %>% 
-  step_mutate(tweet = replace_date(tweet, replacement = "<<DATE>>")) %>% 
-  step_mutate(tweet = replace_time(tweet, replacement = "<<TIME>>")) %>% 
-  step_mutate(tweet = replace_ordinal(tweet)) %>% 
-  step_mutate(tweet = replace_money(tweet)) %>% 
-  step_mutate(tweet = replace_number(tweet)) %>% 
+  step_mutate(tweet = replace_date(tweet, replacement = "datewords")) %>% 
+  step_mutate(tweet = replace_time(tweet, replacement = "timewords")) %>% 
+  step_mutate(tweet = replace_money(tweet, replacement = "moneywords")) %>% 
+  step_mutate(tweet = replace_ordinal(tweet, remove = FALSE)) %>% 
+  step_mutate(tweet = replace_number(tweet, remove = FALSE)) %>% 
   step_mutate(tweet = replace_internet_slang(tweet)) %>% 
-  step_mutate(tweet = replace_emoji(tweet)) %>% 
   step_mutate(tweet = replace_contraction(tweet)) %>% 
+  step_mutate(tweet = replace_emoji(tweet)) %>% 
   step_mutate(tweet = replace_symbol(tweet)) %>% 
-  step_tokenize(tweet, token = "word_stems") %>%
-  step_stem(tweet) %>% 
+  step_mutate(tweet = str_squish(tweet)) %>% 
+  step_mutate(tweet = str_replace_all(tweet, "(<.*>)", "")) %>% 
+  step_mutate(tweet = str_replace_all(tweet, "[:digit:]", "")) %>% 
+  step_tokenize(tweet, token = "words") %>%
+  step_stem(tweet) %>%
   step_stopwords(tweet) %>%
-  step_tokenfilter(tweet, max_tokens = 64) %>%
+  step_tokenfilter(tweet, max_tokens = 256) %>%
   step_tf(tweet, weight_scheme = "binary") %>%
-  prep()
+  prep(string_as_factor = FALSE)
 
 # quick check
 head(juice(rec), 10)
@@ -100,7 +105,7 @@ head(juice(rec), 10)
 # define model specification
 model_spec <- rand_forest(
   mode = "classification",
-  mtry = 2,
+  mtry = 3,
   trees = 500,
   min_n = 1
 )
@@ -110,7 +115,7 @@ model_spec <- set_engine(
   object = model_spec,
   engine = "ranger",
   seed = 100,
-  num.threads = parallel::detectCores(),
+  num.threads = parallel::detectCores() / 2,
   importance = "impurity"
 )
 
@@ -206,7 +211,7 @@ pred_test_roc <- pred_test_roc %>%
 # plot sensitivity-specificity trade-off
 p <- ggplot(pred_test_roc, aes(x = .threshold, y = value)) +
   geom_line(aes(colour = metric)) +
-  facet_wrap(~ .level, ncol = 1, scales = "free") +
+  facet_wrap(~ .level, ncol = 1) +
   labs(x = "Probability Threshold to be Classified as Positive", y = "Value", colour = "Metrics") +
   theme_minimal()
 
@@ -235,7 +240,7 @@ pred_test_pr <- pred_test_pr %>%
 # plot recall-precision trade-off
 p <- ggplot(pred_test_pr, aes(x = .threshold, y = value)) +
   geom_line(aes(colour = metric)) +
-  facet_wrap(~ .level, ncol = 1, scales = "free") +
+  facet_wrap(~ .level, ncol = 1) +
   labs(x = "Probability Threshold to be Classified as Positive", y = "Value", colour = "Metrics") +
   theme_minimal()
 
