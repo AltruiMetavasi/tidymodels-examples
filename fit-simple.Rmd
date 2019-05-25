@@ -1,0 +1,261 @@
+---
+title: "Model Fitting and Evaluation"
+author: "R. Dimas Bagas Herlambang"
+date: "`r format(Sys.Date(), '%B %e, %Y')`"
+output:
+  html_document:
+    theme: cosmo
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+# clear-up the environment
+rm(list = ls())
+
+# chunk options
+knitr::opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  fig.asp = 0.5625,
+  fig.align = "center",
+  out.width = "85%",
+  comment = "#>"
+)
+
+# import libs
+library(plotly)
+library(textclean)
+library(textrecipes)
+library(tidyverse)
+library(tidymodels)
+library(xgboost)
+```
+
+## Data Preparation
+
+### Import Dataset
+
+```{r data-import}
+# import dataset
+data_clean <- read_csv("data/data-clean.csv")
+
+# quick check
+head(data_clean, 10)
+```
+
+## Data Preprocess
+
+### Cross-Validation Scheme
+
+```{r preproc-initial_split}
+# set seed
+set.seed(100)
+
+# create initial split
+splitted <- initial_split(data_clean, prop = 0.8, strata = "sentiment")
+
+# quick check
+splitted
+```
+
+### Defining Preprocess Recipe
+
+```{r preproc-rec}
+# define preprocess recipe from train dataset
+rec <- recipe(sentiment ~ ., data = training(splitted)) %>% 
+  step_rm(-sentiment, -tweet) %>%
+  step_string2factor(sentiment, levels = c("negative", "neutral", "positive"), skip = TRUE) %>%
+  step_downsample(sentiment, ratio = 1/1, seed = 100) %>%
+  step_mutate(tweet = str_squish(tweet)) %>% 
+  step_mutate(tweet = replace_html(tweet, symbol = FALSE)) %>% 
+  step_mutate(tweet = replace_kern(tweet)) %>% 
+  step_mutate(tweet = replace_word_elongation(tweet)) %>% 
+  step_mutate(tweet = replace_date(tweet, replacement = "datewords")) %>% 
+  step_mutate(tweet = replace_time(tweet, replacement = "timewords")) %>% 
+  step_mutate(tweet = replace_money(tweet, replacement = "moneywords")) %>% 
+  step_mutate(tweet = replace_ordinal(tweet, remove = FALSE)) %>% 
+  step_mutate(tweet = replace_number(tweet, remove = FALSE)) %>% 
+  step_mutate(tweet = replace_internet_slang(tweet)) %>% 
+  step_mutate(tweet = replace_contraction(tweet)) %>% 
+  step_mutate(tweet = replace_emoji(tweet)) %>% 
+  step_mutate(tweet = replace_symbol(tweet)) %>% 
+  step_mutate(tweet = str_squish(tweet)) %>% 
+  step_mutate(tweet = str_replace_all(tweet, "(<.*>)", "")) %>% 
+  step_mutate(tweet = str_replace_all(tweet, "[:digit:]", "")) %>% 
+  step_tokenize(tweet, token = "words") %>%
+  step_stem(tweet) %>%
+  step_stopwords(tweet) %>%
+  step_tokenfilter(tweet, max_tokens = 256) %>%
+  step_tfidf(tweet) %>%
+  prep(string_as_factor = FALSE)
+
+# get train and test dataset
+data_train <- juice(rec)
+data_test <- bake(rec, testing(splitted))
+
+# quick check
+head(data_train, 10)
+```
+
+## Model Fitting
+
+### Defining Model Specifications
+
+```{r model-spec}
+# define model specification
+model_spec <- boost_tree(
+  mtry = 32,
+  trees = 500,
+  min_n = 1,
+  tree_depth = 8,
+  loss_reduction = 0.1,
+  learn_rate = 0.1,
+  sample_size = 0.8,
+  mode = "classification"
+)
+
+# define model engine
+model_spec <- set_engine(
+  object = model_spec,
+  engine = "xgboost",
+  nthread = parallel::detectCores() / 2
+)
+
+# quick check
+model_spec
+```
+
+### Model Fitting
+
+```{r model-fit}
+# set seed
+set.seed(100)
+
+# fit the model
+model <- fit_xy(
+  object = model_spec,
+  x = select(data_train, -sentiment),
+  y = select(data_train, sentiment)
+)
+
+# quick check
+model
+```
+
+### Variable Importance
+
+```{r model-var_imp}
+# get variable importance
+var_imp <- xgb.importance(names(juice(rec, -sentiment)), model$fit)
+
+# tidying
+var_imp <- var_imp %>%
+  arrange(desc(Gain)) %>% 
+  head(10) %>% 
+  rename(variable = Feature, importance = Gain) %>%
+  mutate(variable = reorder(variable, importance))
+
+# variable importance plot
+ggplot(var_imp, aes(x = variable, y = importance)) +
+  geom_col(fill = "darkblue") +
+  coord_flip() +
+  labs(title = "Variables Importance (Top 10)", x = NULL, y = NULL, fill = NULL) +
+  scale_y_continuous(expand = expand_scale(mult = c(0, 0.1))) +
+  theme_minimal()
+```
+
+## Model Evaluation
+
+### Predict on Test Dataset
+
+```{r eval-pred}
+# predict on test
+pred_test <- select(data_test, sentiment) %>%
+  bind_cols(predict(model, select(data_test, -sentiment))) %>%
+  bind_cols(predict(model, select(data_test, -sentiment), type = "prob"))
+
+# quick check
+head(pred_test, 10)
+```
+
+### Confusion Matrix
+
+```{r eval-conf_mat}
+# confusion matrix
+pred_test %>%
+  conf_mat(sentiment, .pred_class) %>%
+  autoplot(type = "heatmap")
+```
+
+```{r eval-conf_mat-summary}
+# metrics summary
+pred_test %>%
+  summarise(
+    accuracy = accuracy_vec(sentiment, .pred_class),
+    sensitivity = sens_vec(sentiment, .pred_class),
+    specificity = spec_vec(sentiment, .pred_class),
+    precision = precision_vec(sentiment, .pred_class)
+  )
+```
+
+### ROC Curve
+
+```{r eval-roc_curve}
+# plot roc curve
+pred_test %>%
+  roc_curve(sentiment, .pred_negative:.pred_positive) %>%
+  autoplot()
+```
+
+```{r eval-roc_curve-trade_off}
+# get roc curve data on test dataset
+pred_test_roc <- pred_test %>%
+  roc_curve(sentiment, .pred_negative:.pred_positive)
+
+# tidying
+pred_test_roc <- pred_test_roc %>% 
+  mutate_if(~ is.numeric(.), ~ round(., 4)) %>% 
+  gather(metric, value, -.threshold, -.level)
+
+# plot sensitivity-specificity trade-off
+p <- ggplot(pred_test_roc, aes(x = .threshold, y = value)) +
+  geom_line(aes(colour = metric)) +
+  facet_wrap(~ .level, ncol = 1) +
+  labs(x = "Probability Threshold to be Classified as Positive", y = "Value", colour = "Metrics") +
+  theme_minimal()
+
+ggplotly(p)
+```
+
+### Precision-Recall Curve
+
+```{r eval-pr_curve}
+# plot pr curve
+pred_test %>%
+  pr_curve(sentiment, .pred_negative:.pred_positive) %>%
+  autoplot()
+```
+
+```{r eval-pr_curve_trade_off}
+# get pr curve data on test dataset
+pred_test_pr <- pred_test %>%
+  pr_curve(sentiment, .pred_negative:.pred_positive)
+
+# tidying
+pred_test_pr <- pred_test_pr %>% 
+  mutate_if(~ is.numeric(.), ~ round(., 4)) %>% 
+  gather(metric, value, -.threshold, -.level)
+
+# plot recall-precision trade-off
+p <- ggplot(pred_test_pr, aes(x = .threshold, y = value)) +
+  geom_line(aes(colour = metric)) +
+  facet_wrap(~ .level, ncol = 1) +
+  labs(x = "Probability Threshold to be Classified as Positive", y = "Value", colour = "Metrics") +
+  theme_minimal()
+
+ggplotly(p)
+```
