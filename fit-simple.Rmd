@@ -90,7 +90,7 @@ rec <- recipe(sentiment ~ ., data = training(splitted)) %>%
   step_stem(tweet) %>%
   step_stopwords(tweet) %>%
   step_tokenfilter(tweet, max_tokens = 256) %>%
-  step_tf(tweet, weight_scheme = "binary") %>%
+  step_tfidf(tweet) %>%
   prep(string_as_factor = FALSE)
 
 # quick check
