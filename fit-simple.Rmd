@@ -68,7 +68,7 @@ splitted
 # define preprocess recipe from train dataset
 rec <- recipe(sentiment ~ ., data = training(splitted)) %>% 
   step_rm(-sentiment, -tweet) %>%
-  step_string2factor(sentiment, levels = c("negative", "neutral", "positive"), skip = TRUE) %>%
+  step_string2factor(sentiment, levels = c("negative", "neutral", "positive")) %>%
   step_downsample(sentiment, ratio = 1/1, seed = 100) %>%
   step_mutate(tweet = str_squish(tweet)) %>% 
   step_mutate(tweet = replace_html(tweet, symbol = FALSE)) %>% 
