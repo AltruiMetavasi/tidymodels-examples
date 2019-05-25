@@ -93,6 +93,10 @@ rec <- recipe(sentiment ~ ., data = training(splitted)) %>%
   step_tfidf(tweet) %>%
   prep(string_as_factor = FALSE)
 
+# get train and test dataset
+data_train <- juice(rec)
+data_test <- bake(rec, testing(splitted))
+
 # quick check
 head(juice(rec), 10)
 ```
@@ -127,7 +131,11 @@ model_spec
 
 ```{r model-fit}
 # fit the model
-model <- fit_xy(model_spec, x = juice(rec, -sentiment), y = juice(rec, sentiment))
+model <- fit_xy(
+  object = model_spec,
+  x = select(data_train, -sentiment),
+  y = select(data_train, sentiment)
+)
 
 # quick check
 model
@@ -141,6 +149,7 @@ var_imp <- tidy(model$fit$variable.importance)
 
 # tidying
 var_imp <- var_imp %>%
+  arrange(desc(x)) %>% 
   head(10) %>% 
   rename(variable = names, importance = x) %>%
   mutate(variable = reorder(variable, importance))
@@ -160,10 +169,9 @@ ggplot(var_imp, aes(x = variable, y = importance)) +
 
 ```{r eval-pred}
 # predict on test
-pred_test <- bake(rec, testing(splitted)) %>%
-  bind_cols(predict(model, .)) %>%
-  bind_cols(predict(model, ., type = "prob")) %>% 
-  select(sentiment, starts_with(".pred"))
+pred_test <- select(data_test, sentiment) %>%
+  bind_cols(predict(model, select(data_test, -sentiment))) %>%
+  bind_cols(predict(model, select(data_test, -sentiment), type = "prob"))
 
 # quick check
 head(pred_test, 10)
