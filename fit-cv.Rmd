@@ -74,8 +74,12 @@ rec <- recipe(attrition ~ ., data = training(splitted)) %>%
   step_scale(all_numeric()) %>%
   prep(strings_as_factors = FALSE)
 
+# get train and test dataset
+data_train <- juice(rec)
+data_test <- bake(rec, testing(splitted))
+
 # quick check
-head(juice(rec), 10)
+head(data_train, 10)
 ```
 
 ### Cross-Validation Scheme
@@ -85,7 +89,7 @@ head(juice(rec), 10)
 set.seed(100)
 
 # create cv split
-cv_split <- vfold_cv(juice(rec), v = 3, repeats = 2, strata = "attrition")
+cv_split <- vfold_cv(data_train, v = 3, repeats = 2, strata = "attrition")
 
 # quick check
 cv_split
@@ -117,7 +121,7 @@ model_engine
 ```{r model-grid}
 # set-up model grid
 model_grid <- grid_regular(
-  range_set(mtry, range = c(2, ncol(juice(rec)) - 2)),
+  range_set(mtry, range = c(2, ncol(data_train) - 2)),
   range_set(trees, range = c(500, 1500)),
   range_set(min_n, range = c(1, 30)),
   levels = 3
@@ -159,42 +163,35 @@ head(crossed, 10)
 ### Get Prediction on Hold-out Sample
 
 ```{r results-predict}
-# get hold-out prediction in every folds
-cv_result <- crossed %>%
-  mutate(prediction = map2(model, splits, ~
+# get hold-out performance in every folds
+cv_results <- crossed %>%
+  mutate(performance = map2(model, splits, ~
     assessment(.y) %>%
       bind_cols(predict(.x, .)) %>%
-      bind_cols(predict(.x, ., type = "prob")) %>%
-      select(attrition, starts_with(".pred"))
+      summarise(
+        sensitivity = sens_vec(attrition, .pred_class),
+        precision = precision_vec(attrition, .pred_class)
+      )
   ))
 
 # unnest the cv result
-cv_result <- cv_result %>%
-  select(spec_id, id, id2, prediction) %>%
-  unnest(prediction)
-
-# get metrics for every model
-grid_result <- cv_result %>%
-  group_by(spec_id, id, id2) %>%
-  summarise(
-    sensitivity = sens_vec(attrition, .pred_class),
-    precision = precision_vec(attrition, .pred_class)
-  ) %>%
-  ungroup()
+cv_results <- cv_results %>%
+  select(spec_id, id, id2, performance) %>%
+  unnest(performance)
 
 # join with model grid
-grid_result <- grid_result %>% 
+cv_results <- cv_results %>% 
   left_join(model_grid)
 
 # quick check
-head(grid_result, 10)
+head(cv_results, 10)
 ```
 
 ### Sensitivity
 
 ```{r results-sensitivity}
 # plot the result
-ggplot(grid_result, aes(x = as.factor(mtry), y = sensitivity)) +
+ggplot(cv_results, aes(x = as.factor(mtry), y = sensitivity)) +
   geom_boxplot(aes(fill = as.factor(trees))) +
   coord_flip() +
   facet_wrap(~ min_n, ncol = 3, labeller = "label_both") +
@@ -206,10 +203,162 @@ ggplot(grid_result, aes(x = as.factor(mtry), y = sensitivity)) +
 
 ```{r results-precision}
 # plot the result
-ggplot(grid_result, aes(x = as.factor(mtry), y = precision)) +
+ggplot(cv_results, aes(x = as.factor(mtry), y = precision)) +
   geom_boxplot(aes(fill = as.factor(trees))) +
   coord_flip() +
   facet_wrap(~ min_n, ncol = 3, labeller = "label_both") +
   labs(x = "mtry", y = "Precision", fill = "trees") +
   theme_minimal()
+```
+
+## Best Model Selection
+
+```{r best-get}
+# get best model by sensitivity
+best_model <- cv_results %>% 
+  group_by(spec_id) %>% 
+  summarise(
+    mean = mean(sensitivity),
+    sd = sd(sensitivity)
+  ) %>% 
+  ungroup() %>% 
+  mutate(
+    score_mean = round((mean - min(mean)) / (max(mean) - min(mean)), 4),
+    score_sd = 1 - round((sd - min(sd)) / (max(sd) - min(sd)), 4),
+    score_total = 0.5 * score_mean + 0.5 * score_sd
+  ) %>% 
+  arrange(desc(score_total)) %>% 
+  slice(1)
+
+# check best model specification
+left_join(best_model, model_grid)
+```
+
+```{r best-fit}
+# get best model specification
+best_model_spec <- best_model %>% 
+  left_join(model_specs) %>% 
+  pull(spec) %>% 
+  pluck(1)
+
+# fit the model
+model <- fit_xy(
+  object = best_model_spec,
+  x = select(data_train, -attrition),
+  y = select(data_train, attrition)
+)
+
+# quick check
+model
+```
+
+### Variable Importance
+
+```{r model-var_imp}
+# get variable importance
+var_imp <- tidy(model$fit$variable.importance)
+
+# tidying
+var_imp <- var_imp %>%
+  head(10) %>% 
+  rename(variable = names, importance = x) %>%
+  mutate(variable = reorder(variable, importance))
+
+# variable importance plot
+ggplot(var_imp, aes(x = variable, y = importance)) +
+  geom_col(fill = "darkblue") +
+  coord_flip() +
+  labs(title = "Variables Importance (Top 10)", x = NULL, y = NULL, fill = NULL) +
+  scale_y_continuous(expand = expand_scale(mult = c(0, 0.1))) +
+  theme_minimal()
+```
+
+## Best Model Evaluation
+
+### Predict on Test Dataset
+
+```{r eval-pred}
+# predict on test
+pred_test <- select(data_test, attrition) %>%
+  bind_cols(predict(model, select(data_test, -attrition))) %>%
+  bind_cols(predict(model, select(data_test, -attrition), type = "prob"))
+
+# quick check
+head(pred_test, 10)
+```
+
+### Confusion Matrix
+
+```{r eval-conf_mat}
+# confusion matrix
+pred_test %>%
+  conf_mat(attrition, .pred_class) %>%
+  autoplot(type = "heatmap")
+```
+
+```{r eval-conf_mat-summary}
+# metrics summary
+pred_test %>%
+  summarise(
+    accuracy = accuracy_vec(attrition, .pred_class),
+    sensitivity = sens_vec(attrition, .pred_class),
+    specificity = spec_vec(attrition, .pred_class),
+    precision = precision_vec(attrition, .pred_class)
+  )
+```
+
+### ROC Curve
+
+```{r eval-roc_curve}
+# plot roc curve
+pred_test %>%
+  roc_curve(attrition, .pred_yes) %>%
+  autoplot()
+```
+
+```{r eval-roc_curve-trade_off}
+# get roc curve data on test dataset
+pred_test_roc <- pred_test %>%
+  roc_curve(attrition, .pred_yes)
+
+# tidying
+pred_test_roc <- pred_test_roc %>% 
+  mutate_if(~ is.numeric(.), ~ round(., 4)) %>% 
+  gather(metric, value, -.threshold)
+
+# plot sensitivity-specificity trade-off
+p <- ggplot(pred_test_roc, aes(x = .threshold, y = value)) +
+  geom_line(aes(colour = metric)) +
+  labs(x = "Probability Threshold to be Classified as Positive", y = "Value", colour = "Metrics") +
+  theme_minimal()
+
+ggplotly(p)
+```
+
+### Precision-Recall Curve
+
+```{r eval-pr_curve}
+# plot pr curve
+pred_test %>%
+  pr_curve(attrition, .pred_yes) %>%
+  autoplot()
+```
+
+```{r eval-pr_curve_trade_off}
+# get pr curve data on test dataset
+pred_test_pr <- pred_test %>%
+  pr_curve(attrition, .pred_yes)
+
+# tidying
+pred_test_pr <- pred_test_pr %>% 
+  mutate_if(~ is.numeric(.), ~ round(., 4)) %>% 
+  gather(metric, value, -.threshold)
+
+# plot recall-precision trade-off
+p <- ggplot(pred_test_pr, aes(x = .threshold, y = value)) +
+  geom_line(aes(colour = metric)) +
+  labs(x = "Probability Threshold to be Classified as Positive", y = "Value", colour = "Metrics") +
+  theme_minimal()
+
+ggplotly(p)
 ```

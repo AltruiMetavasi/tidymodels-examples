@@ -79,7 +79,7 @@ data_train <- juice(rec)
 data_test <- bake(rec, testing(splitted))
 
 # quick check
-head(juice(rec), 10)
+head(data_train, 10)
 ```
 
 ## Model Fitting
@@ -91,7 +91,7 @@ head(juice(rec), 10)
 model_spec <- rand_forest(
   mode = "classification",
   mtry = 29,
-  trees = 1000,
+  trees = 500,
   min_n = 15
 )
 
@@ -117,6 +117,7 @@ model <- fit_xy(
   x = select(data_train, -attrition),
   y = select(data_train, attrition)
 )
+
 # quick check
 model
 ```
