@@ -1,0 +1,237 @@
+---
+title: "Model Fitting and Evaluation"
+author: "R. Dimas Bagas Herlambang"
+date: "`r format(Sys.Date(), '%B %e, %Y')`"
+output:
+  html_document:
+    theme: cosmo
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+# clear-up the environment
+rm(list = ls())
+
+# chunk options
+knitr::opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  fig.asp = 0.5625,
+  fig.align = "center",
+  out.width = "85%",
+  comment = "#>"
+)
+
+# import libs
+library(plotly)
+library(tidyverse)
+library(tidymodels)
+library(xgboost)
+```
+
+## Data Preparation
+
+### Import Dataset
+
+```{r data-import}
+# import dataset
+data_clean <- read_csv("data/data-clean.csv")
+
+# quick check
+head(data_clean, 10)
+```
+
+## Data Preprocess
+
+### Cross-Validation Scheme
+
+```{r preproc-initial_split}
+# set seed
+set.seed(100)
+
+# create initial split
+splitted <- initial_split(data_clean, prop = 0.8, strata = "attrition")
+
+# quick check
+splitted
+```
+
+### Defining Preprocess Recipe
+
+```{r preproc-rec}
+# define preprocess recipe from train dataset
+rec <- recipe(attrition ~ ., data = training(splitted)) %>% 
+  step_rm(employee_count, employee_number) %>%
+  step_nzv(all_predictors()) %>% 
+  step_string2factor(all_nominal(), -attrition) %>%
+  step_string2factor(attrition, levels = c("yes", "no")) %>%
+  step_downsample(attrition, ratio = 1/1, seed = 100) %>%
+  step_center(all_numeric()) %>%
+  step_scale(all_numeric()) %>%
+  step_dummy(all_predictors(), -all_numeric()) %>% 
+  prep(strings_as_factors = FALSE)
+
+# get train and test dataset
+data_train <- juice(rec)
+data_test <- bake(rec, testing(splitted))
+
+# quick check
+head(data_train, 10)
+```
+
+## Model Fitting
+
+### Defining Model Specifications
+
+```{r model-spec}
+# define model specification
+model_spec <- boost_tree(
+  mode = "classification",
+  mtry = ncol(data_train) - 2,
+  trees = 500,
+  min_n = 1,
+  tree_depth = 8,
+  loss_reduction = 0.1,
+  learn_rate = 0.1,
+  sample_size = 0.8
+)
+
+# define model engine
+model_engine <- set_engine(
+  object = model_spec,
+  engine = "xgboost",
+  nthread = parallel::detectCores() / 2
+)
+
+# quick check
+model_engine
+```
+
+### Model Fitting
+
+```{r model-fit}
+# fit the model
+model <- fit_xy(
+  object = model_engine,
+  x = select(data_train, -attrition),
+  y = select(data_train, attrition)
+)
+
+# quick check
+model
+```
+
+### Variable Importance
+
+```{r model-var_imp}
+# get variable importance
+var_imp <- xgb.importance(names(select(data_train, -attrition)), model$fit)
+
+# tidying
+var_imp <- var_imp %>%
+  head(10) %>% 
+  rename(variable = Feature, importance = Gain) %>%
+  mutate(variable = reorder(variable, importance))
+
+# variable importance plot
+ggplot(var_imp, aes(x = variable, y = importance)) +
+  geom_col(fill = "darkblue") +
+  coord_flip() +
+  labs(title = "Variables Importance (Top 10)", x = NULL, y = NULL, fill = NULL) +
+  scale_y_continuous(expand = expand_scale(mult = c(0, 0.1))) +
+  theme_minimal()
+```
+
+## Model Evaluation
+
+### Predict on Test Dataset
+
+```{r eval-pred}
+# predict on test
+pred_test <- select(data_test, attrition) %>%
+  bind_cols(predict(model, select(data_test, -attrition))) %>%
+  bind_cols(predict(model, select(data_test, -attrition), type = "prob"))
+
+# quick check
+head(pred_test, 10)
+```
+
+### Confusion Matrix
+
+```{r eval-conf_mat}
+# confusion matrix
+pred_test %>%
+  conf_mat(attrition, .pred_class) %>%
+  autoplot(type = "heatmap")
+```
+
+```{r eval-conf_mat-summary}
+# metrics summary
+pred_test %>%
+  summarise(
+    accuracy = accuracy_vec(attrition, .pred_class),
+    sensitivity = sens_vec(attrition, .pred_class),
+    specificity = spec_vec(attrition, .pred_class),
+    precision = precision_vec(attrition, .pred_class)
+  )
+```
+
+### ROC Curve
+
+```{r eval-roc_curve}
+# plot roc curve
+pred_test %>%
+  roc_curve(attrition, .pred_yes) %>%
+  autoplot()
+```
+
+```{r eval-roc_curve-trade_off}
+# get roc curve data on test dataset
+pred_test_roc <- pred_test %>%
+  roc_curve(attrition, .pred_yes)
+
+# tidying
+pred_test_roc <- pred_test_roc %>% 
+  mutate_if(~ is.numeric(.), ~ round(., 4)) %>% 
+  gather(metric, value, -.threshold)
+
+# plot sensitivity-specificity trade-off
+p <- ggplot(pred_test_roc, aes(x = .threshold, y = value)) +
+  geom_line(aes(colour = metric)) +
+  labs(x = "Probability Threshold to be Classified as Positive", y = "Value", colour = "Metrics") +
+  theme_minimal()
+
+ggplotly(p)
+```
+
+### Precision-Recall Curve
+
+```{r eval-pr_curve}
+# plot pr curve
+pred_test %>%
+  pr_curve(attrition, .pred_yes) %>%
+  autoplot()
+```
+
+```{r eval-pr_curve_trade_off}
+# get pr curve data on test dataset
+pred_test_pr <- pred_test %>%
+  pr_curve(attrition, .pred_yes)
+
+# tidying
+pred_test_pr <- pred_test_pr %>% 
+  mutate_if(~ is.numeric(.), ~ round(., 4)) %>% 
+  gather(metric, value, -.threshold)
+
+# plot recall-precision trade-off
+p <- ggplot(pred_test_pr, aes(x = .threshold, y = value)) +
+  geom_line(aes(colour = metric)) +
+  labs(x = "Probability Threshold to be Classified as Positive", y = "Value", colour = "Metrics") +
+  theme_minimal()
+
+ggplotly(p)
+```
